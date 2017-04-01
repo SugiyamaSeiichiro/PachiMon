@@ -1,0 +1,163 @@
+#include "PlayScene.h"
+USING_NS_CC;
+Scene* Play::createScene(){	
+	auto scene = Scene::create();
+	auto layer = Play::create();
+	scene->addChild(layer);	
+	return scene;
+}
+//初期処理
+bool Play::init(){
+	if (!Layer::init())
+		return false;
+	//画面サイズ取得
+	Size visibleSize = Director::getInstance()->getVisibleSize();
+	Vec2 origin = Director::getInstance()->getVisibleOrigin();
+	Ball.sprite = Sprite::create("Ball.png");	
+	Peg.sprite = Sprite::create("Peg.png");
+	Cannon.sprite = Sprite::create("Cannon.png");
+	cannon = Sprite::create("Cannon2.png");
+	
+	Ball.sprite->setPosition(Vec2(visibleSize.width / 2 + origin.x, 840.0f));	
+	this->addChild(Ball.sprite, 0);	
+	Peg.sprite->setPosition(Vec2(visibleSize.width / 2 + origin.x, visibleSize.height / 2 + origin.y));	
+	this->addChild(Peg.sprite, 0);	
+	Cannon.sprite->setPosition(Vec2(visibleSize.width / 2 + origin.x, 840.0f));
+	this->addChild(Cannon.sprite, 0);
+	cannon->setPosition(Vec2(visibleSize.width / 2 + origin.x, visibleSize.height / 2 + origin.y + 390.0f));	
+	this->addChild(cannon, 0);	
+	//初期化
+	Ball.sprite->setVisible(false);
+	Ball.spd.y = 0.0f;
+	Ball.radius = 10.0f;
+	Peg.radius = 10.0f;
+	Cannon.sprite->setAnchorPoint(Vec2(0.5, 1.7));
+
+	// タッチのためのリスナーを作成する。
+	auto listener = EventListenerTouchOneByOne::create();
+	// リスナーにイベントハンドラーを設定する。
+	listener->onTouchBegan = CC_CALLBACK_2(Play::onTouchBegan, this);
+	listener->onTouchMoved = CC_CALLBACK_2(Play::onTouchMoved, this);
+	listener->onTouchEnded = CC_CALLBACK_2(Play::onTouchEnded, this);
+	listener->onTouchCancelled = CC_CALLBACK_2(Play::onTouchCancelled, this);
+	// イベントディスパッチャーを取得する。
+	auto eventDispatcher = this->getEventDispatcher();
+	// イベントリスナーを追加する。
+	eventDispatcher->addEventListenerWithSceneGraphPriority(listener, this);
+
+	this->scheduleUpdate();
+
+	
+
+	return true;
+}
+void Play::update(float delta){
+	//スプライトの位置を取得
+	Ball.pos = Ball.sprite->getPosition();	
+	Peg.pos = Peg.sprite->getPosition();	
+	//ボール発射後
+	if (Ball.sprite->isVisible()){
+		if (Collision(Ball, Peg) == true){
+			Ball.spd = Reflection(Ball, Peg.pos);			
+			//スプライトの表示、非表示
+			//Peg.sprite->setVisible(false);
+		}	
+		//壁反射
+		if (Ball.pos.x + Ball.radius >= 540.0f)
+			Ball.spd = Vec2(-Ball.spd.x, Ball.spd.y);
+		if (Ball.pos.x - Ball.radius <= 0.0f)
+			Ball.spd = Vec2(-Ball.spd.x, Ball.spd.y);
+		//重力
+		if (Ball.pos.y<750)
+		Ball.spd.y += 0.1f;
+		//座標更新
+		Ball.pos -= Ball.spd;
+		//スプライトに座標更新後の値を代入
+		Ball.sprite->setPosition(Ball.pos);		
+	}
+	
+}
+//タッチ開始
+bool Play::onTouchBegan(cocos2d::Touch *touch, cocos2d::Event *event){	
+	//タッチフラグ初期化
+	TouchFlag = 0;
+	Vec2 touchpos = touch->getLocation();		
+	return true;
+}
+
+/**
+* タッチが移動した時の処理。
+*
+* @param touch タッチデータ
+* @param event イベントデータ
+*/
+void Play::onTouchMoved(cocos2d::Touch *touch, cocos2d::Event *event){	
+	//移動のみで発射しないよう
+	TouchFlag = 1;
+	//１フレーム前のタッチ位置
+	auto touchPositionBefore = touch->getPreviousLocation();
+	//現在タッチ位置
+	auto touchPosition = touch->getLocation();
+	log("Move x=%f y=%f", touchPosition.x, touchPosition.y);
+	Cannon.angle = Cannon.sprite->getRotation();
+	
+	Vec2 a = touchPositionBefore - Vec2(270.0f,750.0f);
+	Vec2 b = touchPosition - Vec2(270.0f, 750.0f);	
+
+	float angle = atan2f(a.y,a.x);
+	float angle2 = atan2f(b.y,b.x);
+	angle = angle2 - angle;
+	angle = CC_RADIANS_TO_DEGREES(angle);	
+	Cannon.angle -= angle;
+	Cannon.sprite->setRotation(Cannon.angle);
+}
+
+/**
+* タッチが終了した時の処理。
+*
+* @param touch タッチデータ
+* @param event イベントデータ
+*/
+void Play::onTouchEnded(cocos2d::Touch *touch, cocos2d::Event *event){
+	//Cannon.angle = Cannon.sprite->getRotation();
+	auto touchPosition = touch->getLocation();
+	log("End x=%f y=%f", touchPosition.x, touchPosition.y);
+	//移動しずにタッチだけしたら
+	if (TouchFlag == 0){
+		if (Ball.sprite->isVisible() == false){
+			Ball.sprite->setVisible(true);			
+			Cannon.angle = CC_DEGREES_TO_RADIANS(Cannon.angle);
+			Ball.spd = Vec2(static_cast<float>(sin(Cannon.angle) * 3.0f),
+				static_cast<float>(cos(Cannon.angle) * 3.0f));			
+		}
+	}
+}
+
+/**
+* タッチをキャンセルした時の処理。
+*
+* @param touch タッチデータ
+* @param event イベントデータ
+*/
+void Play::onTouchCancelled(cocos2d::Touch *touch, cocos2d::Event *event){
+	auto touchPosition = touch->getLocation();
+	log("Cancel x=%f y=%f", touchPosition.x, touchPosition.y);
+}
+//円同士の当たり判定
+bool Play::Collision(object circle, object circle2){
+	if (((circle2.pos.x - circle.pos.x)*(circle2.pos.x - circle.pos.x) +
+		(circle2.pos.y - circle.pos.y)*(circle2.pos.y - circle.pos.y)) <=
+		((circle.radius + circle2.radius)*(circle.radius + circle2.radius)))
+		return true;
+	else return false;
+}
+//物理的反射
+Vec2 Play::Reflection(object fall,cocos2d::Vec2 obstacle){
+	Vec2 n = (obstacle - fall.pos);
+	n.normalize();	
+	float len = fall.spd.dot(n);
+	Vec2 spd_a = n*len;
+	Vec2 spd_b = fall.spd - spd_a;
+	fall.spd = -spd_a + spd_b;	
+	return fall.spd;
+}

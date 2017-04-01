@@ -1,0 +1,351 @@
+#include "PlayScene.h"
+#include "TitleScene.h"
+#include "audio/include/AudioEngine.h"
+using namespace cocos2d::experimental;
+USING_NS_CC;
+Scene* Play::createScene(){	
+	auto scene = Scene::create();
+	auto layer = Play::create();
+	scene->addChild(layer);	
+	return scene;
+}
+//初期処理
+bool Play::init(){
+	if (!Layer::init())
+		return false;			
+	//音読み込み
+	BGM = AudioEngine::play2d("Sound\\BGM.mp3");
+	AudioEngine::setVolume(BGM, 0.1f);
+	AudioEngine::setLoop(BGM, true);
+    //画像読み込み
+	Ball.sprite = Sprite::create("Ball.png");		
+	Peg.sprite = Sprite::create("Peg.png");
+	Cannon.sprite = Sprite::create("Cannon.png");
+	Chucker.sprite = Sprite::create("Chucker.png");			
+	auto frontground = Sprite::create("FrontGround.png");
+	auto spring = Sprite::create("Spring.png");
+	GameOver = Sprite::create("GameOver.png");
+	Button[0] = Sprite::create("Button.png");
+	Button[1] = Sprite::create("Button2.png");
+	Button[2] = Sprite::create("Button3.png");
+	for (int i = 0; i < BALLNUM; i++){
+		ReBall[i].sprite = Sprite::create("Ball.png");
+		this->addChild(ReBall[i].sprite, 3);
+	}		
+	label[1] = Label::createWithSystemFont("", "arial", 30);
+	label[1]->setPosition(Vec2(515.0f, 860.0f));
+	addChild(label[1], 4);	
+	label[0] = Label::createWithSystemFont("FreeBall", "arial", 20);	
+	addChild(label[0]);	
+	//初期スプライト位置
+	for (int i = 0; i < 2; i++){
+		Button[i]->setPosition(Vec2(200.0f + i * 140, 400.0f));
+		this->addChild(Button[i], 4);
+	}
+	Button[2]->setPosition(Vec2(70.0f, 870.0f));
+	this->addChild(Button[2], 3);
+	GameOver->setPosition(Vec2(270.0f, 450.0f));	
+	Ball.sprite->setPosition(Vec2(270.0f, 840.0f));		
+	Peg.sprite->setPosition(Vec2(270.0f, 450.0f));		
+	Chucker.sprite->setPosition(Vec2(270.0f, 115.0f));		
+	spring->setPosition(Vec2(60.0f, 450.0f));	
+	frontground->setPosition(Vec2(270.0f, 450.0f));
+	//スプライト描画順番
+	this->addChild(Chucker.sprite, 0);
+	this->addChild(Peg.sprite, 0);
+	this->addChild(spring, 0);
+	this->addChild(Ball.sprite, 1);
+	this->addChild(Cannon.sprite, 1);	
+	this->addChild(frontground, 2);
+	this->addChild(GameOver, 3);	
+	Chucker.spd = Vec2(2.0f, 0.0f);
+	Cannon.sprite->setAnchorPoint(Vec2(0.5f, 1.7f));	
+	// タッチのためのリスナーを作成する。
+	auto listener = EventListenerTouchOneByOne::create();
+	// リスナーにイベントハンドラーを設定する。
+	listener->onTouchBegan = CC_CALLBACK_2(Play::onTouchBegan, this);
+	listener->onTouchMoved = CC_CALLBACK_2(Play::onTouchMoved, this);
+	listener->onTouchEnded = CC_CALLBACK_2(Play::onTouchEnded, this);
+	listener->onTouchCancelled = CC_CALLBACK_2(Play::onTouchCancelled, this);
+	// イベントディスパッチャーを取得する。
+	auto eventDispatcher = this->getEventDispatcher();
+	// イベントリスナーを追加する。
+	eventDispatcher->addEventListenerWithSceneGraphPriority(listener, this);
+	//プレイ初期処理
+	initalize();
+	return true;
+}
+void Play::initalize(){		
+	AudioEngine::resume(BGM);	
+	Cannon.sprite->setPosition(Vec2(270.0f, 840.0f));	
+	for (int i = 0; i < BALLNUM; i++){
+		ReBall[i].type = 0;
+		ReBall[i].sprite->setVisible(true);
+		ReBall[i].sprite->setPosition(Vec2(400.0f + (i*22.0f), 850.0f-(i*5.5f)));
+	}
+	//初期化
+	GameOver->setVisible(false);
+	for (int i = 0; i < 2;i++)
+	Button[i]->setVisible(false);
+	Ball.sprite->setVisible(false);
+	Ball.cnt = BALLNUM;	
+	HoldColor();
+	this->scheduleUpdate();
+}
+//更新処理
+void Play::update(float delta){		
+	srand((unsigned int)time(nullptr));		
+	CCString *BallCnt = CCString::createWithFormat("%d", Ball.cnt);
+	label[1]->setString(BallCnt->getCString());
+	//ボール発射後
+	if (Ball.sprite->isVisible() == true && GameOver->isVisible() == false){
+		//スプライトの位置を取得
+		Ball.pos = Ball.sprite->getPosition();
+		Peg.pos = Peg.sprite->getPosition();			
+		//ボールと大砲本体の当たり判定
+		if (CollisionC(Ball.pos, Vec2(270.0f, 840.0f), 60.0f) == true &&
+			CollisionCnt <= 0 && Cannon.cnt <= 0){
+			Ball.spd = Reflection(Ball, Vec2(270.0f, 840.0f));
+			CollisionCnt = 1;
+		}
+		//ボールと釘の当たり判定
+		if (CollisionC(Ball.pos, Peg.pos, 10.0f) == true && CollisionCnt <= 0){
+			Ball.spd = Reflection(Ball, Peg.pos);
+			CollisionCnt = 1;
+			int id = AudioEngine::play2d("Sound\\Ball.mp3");			
+			AudioEngine::setVolume(id, 0.1f);			
+		}
+		//ボールとバネの当たり判定
+		if (CollisionC(Ball.pos, Vec2(60.0f,450.0f),60.0f) == true && CollisionCnt <= 0){
+			Ball.spd = Reflection(Ball, Vec2(60.0f, 450.0f));
+			CollisionCnt = 1;
+			int id = AudioEngine::play2d("Sound\\Spring.mp3");			
+		}	
+		//ボールとチャッカーの穴の当たり判定
+		if (CollisionS(Ball.pos, Chucker.pos,
+			Vec2(23.0f, 4.0f)) == true){			
+			Ball.sprite->setVisible(false);			
+			Ball.pos = Vec2(270.0f, 840.0f);
+			Ball.spd = Vec2(0.0f, 0.0f);
+			ReBall[Ball.cnt].type = Probability();
+			ReBall[Ball.cnt].sprite->setVisible(true);
+			HoldColor();
+			Ball.cnt++;				
+			int id = AudioEngine::play2d("Sound\\FreeBall.mp3");
+			AudioEngine::setVolume(id, 0.5f);
+			label[0]->setVisible(true);			
+			LabelTime = 40;
+		}
+		//ボールとチャッカーの左端の当たり判定
+		if (CollisionS(Ball.pos, Chucker.pos - Vec2(27.0f, 0.0f),
+			Vec2(3.0f, 15.0f)) == true && CollisionCnt <= 0){
+			Ball.spd = Reflection(Ball, Chucker.pos - Vec2(27.0f, 0.0f));
+			CollisionCnt = 1;
+			int id = AudioEngine::play2d("Sound\\Ball.mp3");			
+			AudioEngine::setVolume(id, 0.1f);
+		}
+		//ボールとチャッカーの右端の当たり判定
+		if(CollisionS(Ball.pos, Chucker.pos + Vec2(27.0f, 0.0f),
+		    Vec2(3.0f, 15.0f)) == true && CollisionCnt <= 0){
+			Ball.spd = Reflection(Ball, Chucker.pos + Vec2(27.0f, 0.0f));
+			CollisionCnt = 1;
+			int id = AudioEngine::play2d("Sound\\Ball.mp3");			
+			AudioEngine::setVolume(id, 0.1f);
+		}		
+		//右壁の反射
+		if (Ball.pos.x + 10.0f >= 540.0f&& CollisionCnt <= 0){
+			Ball.spd = Vec2(-Ball.spd.x, Ball.spd.y);
+			CollisionCnt = 1;
+		}
+		//左壁の反射
+		if (Ball.pos.x - 10.0f <= 0.0f&& CollisionCnt <= 0){
+			Ball.spd = Vec2(-Ball.spd.x, Ball.spd.y);
+			CollisionCnt = 1;
+		}
+		//画面下にいったら発射前状態
+		if (Ball.pos.y - 10.0f <= 0.0f){
+			Ball.sprite->setVisible(false);			
+			Ball.pos = Vec2(270.0f, 840.0f);	
+			Ball.spd = Vec2(0.0f, 0.0f);
+		}
+		//ボールが外に出たら重力がかかる
+		if (Cannon.cnt <= 0)
+			Ball.spd.y += 0.1f;		
+		//カウンター
+		Cannon.cnt--;
+		CollisionCnt--;				
+		//座標更新
+		Ball.pos -= Ball.spd;		
+		//スプライトに座標更新後の値を代入
+		Ball.sprite->setPosition(Ball.pos);			
+	}	
+	if (Ball.sprite->isVisible() == false && Ball.cnt == 0&&GameOver->isVisible()==false){
+		GameOver->setVisible(true);
+		for (int i = 0; i < 2; i++)
+		Button[i]->setVisible(true);
+		AudioEngine::pause(BGM);
+		int id = AudioEngine::play2d("Sound\\GameOver.mp3");
+		AudioEngine::setVolume(id, 0.08f);
+	}
+	//チャッカー更新処理
+	Chucker.pos = Chucker.sprite->getPosition();
+	if (Chucker.pos.x + 30 >= 540.0f)
+		Chucker.spd.x *= -1;
+	if (Chucker.pos.x - 30 <= 0.0f)
+		Chucker.spd.x *= -1;
+	Chucker.pos += Chucker.spd;
+	Chucker.sprite->setPosition(Chucker.pos);
+	TouchCnt++;
+	//長押ししたら発射しない
+	if (TouchCnt >= 20)
+		TouchFlag = false;
+	if (label[0]->isVisible())
+		label[0]->setPosition(Vec2(Chucker.pos.x, Chucker.pos.y + 30.0f));
+	LabelTime--;
+	if (LabelTime <= 0)
+		label[0]->setVisible(false);
+}
+//タッチ開始処理
+bool Play::onTouchBegan(cocos2d::Touch *touch, cocos2d::Event *event){	
+	//初期化
+	TouchFlag = true;		
+	TouchCnt = 0;	
+	return true;
+}
+//タッチ移動処理
+void Play::onTouchMoved(cocos2d::Touch *touch, cocos2d::Event *event){	
+	//移動のみで発射しないようにする
+	TouchFlag = false;
+	if (Cannon.cnt <= 0 && GameOver->isVisible()==false){
+		//１フレーム前のタッチ位置
+		auto touchPositionBefore = touch->getPreviousLocation();
+		//現在タッチ位置
+		auto touchPosition = touch->getLocation();
+		log("Move x=%f y=%f", touchPosition.x, touchPosition.y);
+		//タッチ移動で主砲角度移動		
+		Vec2 a = touchPositionBefore - Vec2(270.0f, 750.0f);
+		Vec2 b = touchPosition - Vec2(270.0f, 750.0f);
+		float angle = atan2f(a.y, a.x);
+		float angle2 = atan2f(b.y, b.x);
+		angle = angle2 - angle;
+		angle = CC_RADIANS_TO_DEGREES(angle);
+		Cannon.angle -= angle;
+		Cannon.sprite->setRotation(Cannon.angle);
+	}
+}
+//タッチ終了処理
+void Play::onTouchEnded(cocos2d::Touch *touch, cocos2d::Event *event){	
+	auto touchPosition = touch->getLocation();
+	log("End x=%f y=%f", touchPosition.x, touchPosition.y);
+	//移動しずにタッチだけしたら
+	if (TouchFlag == true && Ball.cnt != 0) {
+		if (Ball.sprite->isVisible() == false){
+			Ball.sprite->setVisible(true);			
+			float angle = CC_DEGREES_TO_RADIANS(Cannon.angle);
+			Ball.spd = Vec2(static_cast<float>(sin(angle) * 5.0f),
+				static_cast<float>(cos(angle) * 5.0f));		
+			Cannon.cnt = 37;		
+			Ball.type = ReBall[0].type;			
+			for (int i = 0; i < Ball.cnt; i++)
+				ReBall[i].type = ReBall[i + 1].type;				
+			Ball.cnt--;
+			ReBall[Ball.cnt].sprite->setVisible(false);	
+			HoldColor();	
+			int id = AudioEngine::play2d("Cannon.mp3");		
+		}
+		Rect ButtonRect;		
+		ButtonRect = Rect(Button[2]->getPosition().x - Button[2]->getContentSize().width / 2,
+			Button[2]->getPosition().y - Button[2]->getContentSize().height / 2,
+				Button[2]->getContentSize().width,
+				Button[2]->getContentSize().height);		
+		if (ButtonRect.containsPoint(touchPosition)){
+			Director::getInstance()->replaceScene(Title::createScene());
+			int id = AudioEngine::play2d("Sound\\Button.mp3");
+			AudioEngine::setVolume(id, 0.5f);
+		}
+	}
+	//ゲームオーバーになったら
+	if (TouchFlag == true && GameOver->isVisible() == true){
+		Rect ButtonRect[2];
+		for (int i = 0; i < 2; i++){
+			ButtonRect[i] = Rect(Button[i]->getPosition().x - Button[i]->getContentSize().width / 2,
+				Button[i]->getPosition().y - Button[i]->getContentSize().height / 2,
+				Button[i]->getContentSize().width,
+				Button[i]->getContentSize().height);
+		}
+		if (ButtonRect[0].containsPoint(touchPosition)){
+			initalize();
+			int id = AudioEngine::play2d("Sound\\Button.mp3");
+			AudioEngine::setVolume(id, 0.5f);
+		}
+		if (ButtonRect[1].containsPoint(touchPosition)){
+			Director::getInstance()->replaceScene(Title::createScene());
+			int id = AudioEngine::play2d("Sound\\Button.mp3");
+			AudioEngine::setVolume(id, 0.5f);
+		}
+	}
+}
+//タッチをキャンセルした時の処理。
+void Play::onTouchCancelled(cocos2d::Touch *touch, cocos2d::Event *event){
+	auto touchPosition = touch->getLocation();
+	log("Cancel x=%f y=%f", touchPosition.x, touchPosition.y);
+}
+//保留色確率
+int Play::Probability(){
+	int a;
+	int b = rand() % 30;
+	switch (b){
+	case 0:a = Gold; break;
+	case 1: case 2:a = Red; break;
+	case 3: case 4: case 5:a = Green; break;
+	case 6: case 7: case 8: case 9:a = Blue; break;
+	default:a = White; break;
+	}
+	return a;
+}
+//保留色
+void Play::HoldColor(){			
+	switch (Ball.type){
+	case 0:	Ball.sprite->setColor(Color3B::WHITE); break;
+	case 1:	Ball.sprite->setColor(Color3B::BLUE); break;
+	case 2: Ball.sprite->setColor(Color3B::GREEN); break;
+	case 3: Ball.sprite->setColor(Color3B::RED); break;
+	case 4: Ball.sprite->setColor(Color3B::YELLOW); break;		
+	}
+	for (int i = 0; i < BALLNUM; i++){
+		switch (ReBall[i].type){
+		case 0:	ReBall[i].sprite->setColor(Color3B::WHITE); break;
+		case 1:	ReBall[i].sprite->setColor(Color3B::BLUE); break;
+		case 2: ReBall[i].sprite->setColor(Color3B::GREEN); break;
+		case 3: ReBall[i].sprite->setColor(Color3B::RED); break;
+		case 4: ReBall[i].sprite->setColor(Color3B::YELLOW); break;
+		}
+	}
+}
+//四角同士の当たり判定
+bool Play::CollisionS(Vec2 square, Vec2 square2,Vec2 radius2){
+	if (square.x + 10.0f >= square2.x - radius2.x &&
+		square.x - 10.0f <= square2.x + radius2.x &&
+		square.y + 10.0f >= square2.y - radius2.y &&
+		square.y - 10.0f <= square2.y + radius2.y)
+		return true;
+	else return false;
+}
+//円同士の当たり判定
+bool Play::CollisionC(Vec2 circle, Vec2 circle2,float radius2){
+	if (((circle2.x - circle.x)*(circle2.x - circle.x) +
+		(circle2.y - circle.y)*(circle2.y - circle.y)) <=
+		((10.0f + radius2)*(10.0f + radius2)))
+		return true;
+	else return false;
+}
+//物理的反射
+Vec2 Play::Reflection(object fall,cocos2d::Vec2 obstacle){
+	Vec2 n = (obstacle - fall.pos);
+	n.normalize();	
+	float len = fall.spd.dot(n);
+	Vec2 spd_a = n*len;
+	Vec2 spd_b = fall.spd - spd_a;
+	fall.spd = -spd_a + spd_b;	
+	return fall.spd;
+}
